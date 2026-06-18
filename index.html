@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>YS Browser</title>
+<title>YS Browser AI</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 body {
@@ -17,12 +17,7 @@ body {
 .header { text-align: center; margin-bottom: 30px; padding-top: 20px; }
 .logo { font-size: 40px; font-weight: 700; color: #8b5cf6; margin-bottom: 5px; }
 .subtitle { color: #666; font-size: 13px; }
-
-.search-box {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 20px;
-}
+.search-box { display: flex; gap: 8px; margin-bottom: 20px; }
 .search-input {
     flex: 1;
     background: #1a1a1a;
@@ -46,29 +41,17 @@ body {
     min-width: 80px;
 }
 .search-btn:active { background: #7c3aed; transform: scale(0.98); }
-
-.info-text {
-    color: #666;
-    font-size: 12px;
-    margin-bottom: 25px;
-    text-align: center;
-}
-
+.info-text { color: #666; font-size: 12px; margin-bottom: 25px; text-align: center; line-height: 1.6; }
 .result-box {
     background: #1a1a1a;
     border-radius: 14px;
     padding: 18px;
     margin-bottom: 15px;
     border-left: 3px solid #8b5cf6;
+    white-space: pre-wrap;
 }
-.result-tag {
-    color: #8b5cf6;
-    font-size: 11px;
-    font-weight: 600;
-    margin-bottom: 6px;
-}
-.result-content { font-size: 20px; font-weight: 600; }
-
+.result-tag { color: #8b5cf6; font-size: 11px; font-weight: 600; margin-bottom: 8px; }
+.result-content { font-size: 15px; line-height: 1.6; }
 .search-result {
     margin-bottom: 15px;
     padding: 14px;
@@ -79,7 +62,6 @@ body {
 .result-url { color: #4ade80; font-size: 12px; margin-bottom: 4px; word-break: break-all; }
 .result-title { color: #8b5cf6; font-size: 17px; margin-bottom: 5px; text-decoration: none; display: block; font-weight: 500; }
 .result-desc { color: #999; font-size: 13px; line-height: 1.5; }
-
 .crawler-box {
     background: #111;
     border: 1px solid #333;
@@ -87,7 +69,7 @@ body {
     padding: 18px;
     margin-top: 30px;
 }
-.crawler-title { font-size: 15px; margin-bottom: 12px; font-weight: 600; }
+.crawler-title { font-size: 15px; margin-bottom: 12px; font-weight: 600; color: #8b5cf6; }
 .crawler-input {
     width: 100%;
     background: #1a1a1a;
@@ -100,45 +82,52 @@ body {
 }
 .crawler-btn {
     width: 100%;
-    background: white;
-    color: black;
+    background: #8b5cf6;
+    color: white;
     border: none;
     border-radius: 10px;
     padding: 14px;
     font-weight: 600;
     cursor: pointer;
     font-size: 16px;
+    margin-bottom: 8px;
 }
-
+.trained-info {
+    margin-top: 15px;
+    padding: 12px;
+    background: #0a0a0a;
+    border-radius: 8px;
+    border: 1px solid #8b5cf6;
+}
+.trained-label { font-size: 12px; color: #8b5cf6; margin-bottom: 5px; font-weight: 600; }
+.trained-url { font-size: 12px; word-break: break-all; color: #999; }
 .error { color: #ef4444; padding: 14px; background: #1a0a0a; border-radius: 12px; margin-bottom: 15px; font-size: 14px; }
-
-/* Mobil için dokunma alanı büyük */
-@media (max-width: 480px) {
-    body { padding: 12px; }
-    .logo { font-size: 36px; }
-    .search-input { font-size: 16px; } /* iOS zoom engellemek için 16px şart */
-}
 </style>
 </head>
 <body>
 <div class="container">
     <div class="header">
         <div class="logo">YS Browser</div>
-        <div class="subtitle">Mobil Web Tarayıcı</div>
+        <div class="subtitle">AI Eğitimli Tarayıcı</div>
     </div>
 
     <form method="GET" action="/">
         <div class="search-box">
-            <input type="text" name="q" class="search-input" placeholder="Ara veya URL gir" value="{{ query }}" autocomplete="off">
+            <input type="text" name="q" class="search-input" placeholder="Ara / URL / egit https://site.com" value="{{ query }}" autocomplete="off">
             <button type="submit" class="search-btn">Ara</button>
         </div>
     </form>
 
-    <div class="info-text">Örnek: python nedir / 25*4 / https://webtekno.com</div>
+    <div class="info-text">
+        Normal arama: Tübitak<br>
+        Hesap: 25*4<br>
+        AI Eğit: egit https://site.com<br>
+        AI Sor: ai: soru nedir?
+    </div>
 
     {% if is_math %}
     <div class="result-box">
-        <div class="result-tag">YS AKILLI YANIT</div>
+        <div class="result-tag">YS HESAP</div>
         <div class="result-content">{{ query }} = {{ result }}</div>
     </div>
     {% endif %}
@@ -155,11 +144,30 @@ body {
     </div>
     {% endfor %}
 
+    {% if ai_mode and ai_message %}
+    <div class="result-box">
+        <div class="result-tag">YS AI</div>
+        <div class="result-content">{{ ai_message }}</div>
+    </div>
+    {% endif %}
+
     <div class="crawler-box">
-        <div class="crawler-title">Otonom Tarayıcı Besleyici</div>
+        <div class="crawler-title">AI Eğitme Paneli</div>
         <form method="GET" action="/">
-            <input type="text" name="q" class="crawler-input" placeholder="İndekslenecek link URL">
-            <button type="submit" class="crawler-btn">Veri İşle</button>
+            <input type="text" name="q" class="crawler-input" placeholder="egit https://tr.wikipedia.org/wiki/TÜBİTAK">
+            <button type="submit" class="crawler-btn">AI'ı Eğit</button>
+        </form>
+
+        {% if trained_url %}
+        <div class="trained-info">
+            <div class="trained-label">ŞU AN EĞİTİLEN SİTE</div>
+            <div class="trained-url">{{ trained_url }}</div>
+        </div>
+        {% endif %}
+
+        <form method="GET" action="/" style="margin-top:15px">
+            <input type="text" name="q" class="crawler-input" placeholder="ai: TÜBİTAK ne iş yapar?">
+            <button type="submit" class="crawler-btn">AI'a Sor</button>
         </form>
     </div>
 </div>
