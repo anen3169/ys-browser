@@ -1,12 +1,89 @@
 from flask import Flask, render_template, request
 import requests
 from bs4 import BeautifulSoup
-import re, urllib.parse
+import re, urllib.parse, time
 
 app = Flask(__name__, template_folder='.')
 
-# Geçici hafıza - Vercel'de kalıcı değil
-trained_data = {"url": "", "content": ""}
+# Başlangıç cache'i
+cache_data = {
+    "wikipedia-tr": [],
+    "wikipedia-ua": [],
+    "wikipedia-eu": [],
+    "webtekno": []
+}
+cache_loaded = False
+
+def init_cache():
+    """Vercel cold start'ta çalışır"""
+    global cache_data, cache_loaded
+    if cache_loaded:
+        return
+
+    headers = {'User-Agent': 'Mozilla/5.0 YS-Browser/1.0'}
+    
+    # Wikipedia TR - 1500 başlık
+    try:
+        url = "https://tr.wikipedia.org/w/api.php?action=query&list=allpages&aplimit=500&format=json"
+        for _ in range(3): # 3x500 = 1500
+            r = requests.get(url, headers=headers, timeout=8)
+            pages = r.json().get('query', {}).get('allpages', [])
+            for p in pages:
+                cache_data["wikipedia-tr"].append({
+                    'title': p['title'],
+                    'url': f"https://tr.wikipedia.org/wiki/{urllib.parse.quote(p['title'].replace(' ', '_'))}"
+                })
+            if 'continue' in r.json():
+                url = f"https://tr.wikipedia.org/w/api.php?action=query&list=allpages&aplimit=500&apfrom={pages[-1]['title']}&format=json"
+            time.sleep(0.5)
+    except:
+        pass
+
+    # Wikipedia UA - 500 başlık
+    try:
+        url = "https://uk.wikipedia.org/w/api.php?action=query&list=allpages&aplimit=500&format=json"
+        r = requests.get(url, headers=headers, timeout=8)
+        pages = r.json().get('query', {}).get('allpages', [])
+        for p in pages[:500]:
+            cache_data["wikipedia-ua"].append({
+                'title': p['title'],
+                'url': f"https://uk.wikipedia.org/wiki/{urllib.parse.quote(p['title'].replace(' ', '_'))}"
+            })
+    except:
+        pass
+
+    # Wikipedia EU - 200 başlık
+    try:
+        url = "https://eu.wikipedia.org/w/api.php?action=query&list=allpages&aplimit=200&format=json"
+        r = requests.get(url, headers=headers, timeout=8)
+        pages = r.json().get('query', {}).get('allpages', [])
+        for p in pages[:200]:
+            cache_data["wikipedia-eu"].append({
+                'title': p['title'],
+                'url': f"https://eu.wikipedia.org/wiki/{urllib.parse.quote(p['title'].replace(' ', '_'))}"
+            })
+    except:
+        pass
+
+    # Webtekno - 300 haber başlığı
+    try:
+        r = requests.get("https://www.webtekno.com", headers=headers, timeout=8)
+        soup = BeautifulSoup(r.text, 'html.parser')
+        count = 0
+        for a in soup.find_all('a', href=True):
+            link = a['href']
+            text = a.get_text(strip=True)
+            if 'webtekno.com' in link and '/haber/' in link and text and len(text) > 15:
+                cache_data["webtekno"].append({'title': text, 'url': link})
+                count += 1
+                if count >= 300:
+                    break
+    except:
+        pass
+
+    cache_loaded = True
+
+init_cache()
 
 def hesapla(sorgu):
     try:
@@ -20,54 +97,7 @@ def hesapla(sorgu):
 def url_mi(sorgu):
     return re.match(r'^https?://', sorgu) is not None
 
-def site_egit(url):
-    global trained_data
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0 YS-Browser/1.0'}
-        r = requests.get(url, headers=headers, timeout=10)
-        r.raise_for_status()
-        soup = BeautifulSoup(r.text, 'html.parser')
-
-        # Gereksiz tag'leri at
-        for tag in soup(['script', 'style', 'nav', 'footer', 'header', 'aside']):
-            tag.decompose()
-
-        text = soup.get_text(separator=' ', strip=True)
-        text = re.sub(r'\s+', ' ', text)[:10000] # 10k karakter limit
-
-        trained_data = {"url": url, "content": text}
-        title = soup.title.string.strip() if soup.title else url
-        return f"AI eğitildi: {title}", None
-    except Exception as e:
-        return None, f"Eğitilemedi: Siteye erişilemedi"
-
-def ai_sor(soru):
-    global trained_data
-    if not trained_data["content"]:
-        return None, "Önce AI'ı eğit. Örnek: egit https://tr.wikipedia.org/wiki/TÜBİTAK"
-
-    soru_kelimeler = [k.lower() for k in re.findall(r'\w+', soru) if len(k) > 2]
-    content = trained_data["content"]
-
-    # En alakalı 3 paragrafı bul
-    paragraflar = [p.strip() for p in content.split('.') if len(p.strip()) > 40]
-    bulunan = []
-
-    for para in paragraflar:
-        para_lower = para.lower()
-        skor = sum(1 for k in soru_kelimeler if k in para_lower)
-        if skor > 0:
-            bulunan.append((skor, para))
-
-    bulunan.sort(reverse=True, key=lambda x: x[0])
-
-    if bulunan:
-        cevap = '.join([p[1] for p in bulunan[:3]])
-        return f"Kaynak: {trained_data['url']}\n\n{cevap}...", None
-    else:
-        return None, "Eğitilen sitede bu konu hakkında bilgi bulamadım"
-
-def site_cek(url):
+def sayfa_tara(url):
     try:
         headers = {'User-Agent': 'Mozilla/5.0 YS-Browser/1.0'}
         r = requests.get(url, headers=headers, timeout=8)
@@ -76,17 +106,42 @@ def site_cek(url):
         title = soup.title.string.strip() if soup.title else url
         meta = soup.find('meta', attrs={'name': 'description'})
         desc = meta['content'].strip() if meta and meta.get('content') else 'Açıklama yok'
-        return [{'url': url, 'title': title, 'desc': desc[:200]}], None
+        links = []
+        for a in soup.find_all('a', href=True)[:20]:
+            link = a['href']
+            text = a.get_text(strip=True)
+            if link.startswith('http') and text and 5 < len(text) < 80:
+                links.append({'url': link, 'title': text})
+        return {'url': url, 'title': title, 'desc': desc[:250], 'links': links}, None
     except:
-        return None, "Siteye ulaşılamadı"
+        return None, "Site taranamadı"
 
-def web_ara(query):
+def cache_ara(query):
+    query_lower = query.lower()
+    results = []
+    
+    for site, items in cache_data.items():
+        for item in items:
+            if query_lower in item['title'].lower():
+                results.append({
+                    'url': item['url'],
+                    'title': item['title'],
+                    'desc': f"Önbellek: {site}"
+                })
+            if len(results) >= 12:
+                break
+        if len(results) >= 12:
+            break
+    
+    if results:
+        return results, None
+    
+    # Cache'de yoksa Wikipedia API'den çek
     try:
         search_term = query.replace(' ', '_')
         wiki_url = f"https://tr.wikipedia.org/api/rest_v1/page/summary/{urllib.parse.quote(search_term)}"
         headers = {'User-Agent': 'YS-Browser/1.0'}
         r = requests.get(wiki_url, headers=headers, timeout=8)
-
         if r.status_code == 200:
             data = r.json()
             return [{
@@ -96,49 +151,37 @@ def web_ara(query):
             }], None
     except:
         pass
-    return None, "Wikipedia'da bulunamadı. Başka kelime dene"
+    return None, "Sonuç bulunamadı"
 
 @app.route('/', methods=['GET'])
 def index():
     query = request.args.get('q', '').strip()
+    result = None
     results = []
     is_math = False
     math_result = None
     error = None
-    ai_mode = False
-    ai_message = ""
 
     if query:
-        # AI Eğitme: "egit https://site.com"
-        if query.lower().startswith('egit '):
-            url = query[5:].strip()
-            msg, error = site_egit(url)
-            if msg:
-                ai_mode = True
-                ai_message = msg
-        # AI Sorma: "ai: soru"
-        elif query.lower().startswith('ai:'):
-            ai_mode = True
-            soru = query[3:].strip()
-            msg, error = ai_sor(soru)
-            if msg:
-                ai_message = msg
-        else:
-            math_result, is_math = hesapla(query)
-            if not is_math:
-                if url_mi(query):
-                    results, error = site_cek(query)
-                else:
-                    results, error = web_ara(query)
+        math_result, is_math = hesapla(query)
+        if not is_math:
+            if url_mi(query):
+                result, error = sayfa_tara(query)
+            else:
+                results, error = cache_ara(query)
 
     return render_template('index.html',
                          query=query,
+                         result=result,
                          results=results or [],
                          is_math=is_math,
-                         result=math_result,
+                         math_result=math_result,
                          error=error,
-                         ai_mode=ai_mode,
-                         ai_message=ai_message,
-                         trained_url=trained_data["url"])
+                         cache_stats={
+                             'tr': len(cache_data['wikipedia-tr']),
+                             'ua': len(cache_data['wikipedia-ua']),
+                             'eu': len(cache_data['wikipedia-eu']),
+                             'webtekno': len(cache_data['webtekno'])
+                         })
 
 app = app
