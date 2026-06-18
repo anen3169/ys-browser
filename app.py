@@ -7,19 +7,20 @@ app = Flask(__name__, template_folder='.')
 
 def hesapla(sorgu):
     try:
-        # Videodaki "15*20+30 = 330" olayı
         if re.match(r'^[\d\s\+\-\*\/\(\)\.]+$', sorgu):
             return eval(sorgu), True
     except:
         pass
     return None, False
 
+def url_mi(sorgu):
+    return re.match(r'^https?://', sorgu) is not None
+
 def site_cek(url):
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 YS-Browser Vercel/1.0'}
-        r = requests.get(url, headers=headers, timeout=8)  # Vercel 10sn limit
+        headers = {'User-Agent': 'Mozilla/5.0 YS-Browser Mobile/1.0'}
+        r = requests.get(url, headers=headers, timeout=8)
         r.raise_for_status()
-        r.encoding = r.apparent_encoding
         soup = BeautifulSoup(r.text, 'html.parser')
         
         title = soup.title.string.strip() if soup.title else url
@@ -36,7 +37,27 @@ def site_cek(url):
                     results.append({'url': link, 'title': text, 'desc': ''})
         return results, None
     except Exception as e:
-        return None, f"Site çekilemedi: {str(e)}"
+        return None, f"Site çekilemedi"
+
+def web_ara(query):
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 YS-Browser Mobile/1.0'}
+        url = f"https://html.duckgo.com/html/?q={query}"
+        r = requests.get(url, headers=headers, timeout=8)
+        soup = BeautifulSoup(r.text, 'html.parser')
+        
+        results = []
+        for res in soup.find_all('div', class_='result')[:8]:
+            a = res.find('a', class_='result__a')
+            if a:
+                title = a.get_text(strip=True)
+                link = a['href']
+                desc_div = res.find('div', class_='result__snippet')
+                desc = desc_div.get_text(strip=True) if desc_div else ''
+                results.append({'url': link, 'title': title, 'desc': desc[:200]})
+        return results, None
+    except Exception as e:
+        return None, "Arama yapılamadı"
 
 @app.route('/', methods=['GET'])
 def index():
@@ -49,10 +70,10 @@ def index():
     if query:
         math_result, is_math = hesapla(query)
         if not is_math:
-            if query.startswith('http'):
+            if url_mi(query):
                 results, error = site_cek(query)
             else:
-                error = "URL gir veya hesap yap: 15*20+30"
+                results, error = web_ara(query)
     
     return render_template('index.html', 
                          query=query, 
@@ -61,5 +82,4 @@ def index():
                          result=math_result,
                          error=error)
 
-# Vercel için şart
 app = app
