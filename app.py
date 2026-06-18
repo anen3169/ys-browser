@@ -41,55 +41,35 @@ def site_cek(url):
         return None, "Siteye ulaşılamadı"
 
 def web_ara(query):
-    try:
-        # 1. Deneme: DuckDuckGo Instant Answer API - bedava, limit yok
-        api_url = f"https://api.duckgo.com/?q={urllib.parse.quote(query)}&format=json&no_html=1&skip_disambig=1"
-        r = requests.get(api_url, timeout=6)
-        data = r.json()
-
-        results = []
-
-        # Abstract varsa en üste koy
-        if data.get('AbstractURL') and data.get('AbstractText'):
-            results.append({
-                'url': data['AbstractURL'],
-                'title': data.get('Heading', query),
-                'desc': data['AbstractText'][:200]
-            })
-
-        # İlgili konular
-        for topic in data.get('RelatedTopics', [])[:7]:
-            if 'FirstURL' in topic and 'Text' in topic:
-                results.append({
-                    'url': topic['FirstURL'],
-                    'title': topic['Text'].split(' - ')[0][:80],
-                    'desc': topic['Text'][:200]
-                })
-
-        if results:
-            return results, None
-
-        # 2. Fallback: HTML sonuç sayfası
-        html_url = f"https://html.duckgo.com/html/?q={urllib.parse.quote(query)}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        r = requests.get(html_url, headers=headers, timeout=6)
-        soup = BeautifulSoup(r.text, 'html.parser')
-
-        for res in soup.find_all('div', class_='result')[:8]:
-            a = res.find('a', class_='result__a')
-            if a:
-                title = a.get_text(strip=True)
-                link = a['href']
-                desc_div = res.find('a', class_='result__snippet')
-                desc = desc_div.get_text(strip=True) if desc_div else ''
-                results.append({'url': link, 'title': title, 'desc': desc[:200]})
-
-        if not results:
-            return None, "Sonuç bulunamadı"
-        return results, None
-
-    except Exception as e:
-        return None, "Arama sunucusu yanıt vermedi"
+    # SearXNG public instance'ları - sırayla dener
+    instances = [
+        'https://searx.be',
+        'https://search.bus-hit.me',
+        'https://baresearch.org',
+        'https://searx.work'
+    ]
+    
+    headers = {'User-Agent': 'Mozilla/5.0 YS-Browser/1.0'}
+    
+    for instance in instances:
+        try:
+            url = f"{instance}/search?q={urllib.parse.quote(query)}&format=json&language=tr-TR"
+            r = requests.get(url, headers=headers, timeout=7)
+            if r.status_code == 200:
+                data = r.json()
+                results = []
+                for res in data.get('results', [])[:8]:
+                    results.append({
+                        'url': res.get('url', ''),
+                        'title': res.get('title', query),
+                        'desc': res.get('content', '')[:200]
+                    })
+                if results:
+                    return results, None
+        except:
+            continue
+    
+    return None, "Arama motoruna bağlanılamadı. İnterneti kontrol et"
 
 @app.route('/', methods=['GET'])
 def index():
