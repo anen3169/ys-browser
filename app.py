@@ -1,6 +1,5 @@
 from flask import Flask, render_template, request
 import requests
-from bs4 import BeautifulSoup
 import re, urllib.parse
 
 app = Flask(__name__, template_folder='.')
@@ -22,6 +21,7 @@ def site_cek(url):
         headers = {'User-Agent': 'Mozilla/5.0 YS-Browser/1.0'}
         r = requests.get(url, headers=headers, timeout=8)
         r.raise_for_status()
+        from bs4 import BeautifulSoup
         soup = BeautifulSoup(r.text, 'html.parser')
         title = soup.title.string.strip() if soup.title else url
         meta = soup.find('meta', attrs={'name': 'description'})
@@ -34,57 +34,55 @@ def site_cek(url):
                 if text and 10 < len(text) < 100:
                     results.append({'url': link, 'title': text, 'desc': ''})
         return results, None
-    except Exception as e:
-        return None, f"Site hatası: {str(e)[:30]}"
+    except:
+        return None, "Siteye ulaşılamadı"
 
 def web_ara(query):
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml'
-    }
-    q = urllib.parse.quote_plus(query)
-    
-    # 1. Deneme: Bing HTML - Vercel'de en stabil olanı
+    # 1. DuckDuckGo Instant Answer API - Vercel'de ban yok
     try:
-        url = f"https://www.bing.com/search?q={q}&count=8"
-        r = requests.get(url, headers=headers, timeout=7)
-        if r.status_code == 200:
-            soup = BeautifulSoup(r.text, 'html.parser')
-            results = []
-            for li in soup.find_all('li', class_='b_algo')[:8]:
-                a = li.find('a', href=True)
-                h2 = li.find('h2')
-                p = li.find('p')
-                if a and h2:
-                    results.append({
-                        'url': a['href'],
-                        'title': h2.get_text(strip=True),
-                        'desc': p.get_text(strip=True)[:200] if p else ''
-                    })
-            if results:
-                return results, None
-    except Exception as e:
-        print(f"Bing hata: {e}")
+        api_url = f"https://api.duckgo.com/?q={urllib.parse.quote(query)}&format=json&no_html=1&skip_disambig=1"
+        r = requests.get(api_url, timeout=8)
+        data = r.json()
 
-    # 2. Fallback: DuckDuckGo Lite - en hafif sürüm
-    try:
-        url = f"https://duckgo.com/lite/?q={q}"
-        r = requests.get(url, headers=headers, timeout=7)
-        if r.status_code == 200:
-            soup = BeautifulSoup(r.text, 'html.parser')
-            results = []
-            for a in soup.find_all('a', class_='result-link')[:8]:
+        results = []
+
+        # Özet varsa
+        if data.get('AbstractURL') and data.get('AbstractText'):
+            results.append({
+                'url': data['AbstractURL'],
+                'title': data.get('Heading', query),
+                'desc': data['AbstractText'][:250]
+            })
+
+        # İlgili konular
+        for topic in data.get('RelatedTopics', [])[:7]:
+            if isinstance(topic, dict) and 'FirstURL' in topic:
                 results.append({
-                    'url': a['href'],
-                    'title': a.get_text(strip=True),
-                    'desc': ''
+                    'url': topic['FirstURL'],
+                    'title': topic.get('Text', '').split(' - ')[0][:80],
+                    'desc': topic.get('Text', '')[:200]
                 })
-            if results:
-                return results, None
-    except Exception as e:
-        print(f"DDG Lite hata: {e}")
 
-    return None, "Arama başarısız. Vercel IP engeli olabilir"
+        if results:
+            return results, None
+    except:
+        pass
+
+    # 2. Fallback: Wikipedia API - Türkçe
+    try:
+        wiki_url = f"https://tr.wikipedia.org/api/rest_v1/page/summary/{urllib.parse.quote(query)}"
+        r = requests.get(wiki_url, timeout=6)
+        if r.status_code == 200:
+            data = r.json()
+            return [{
+                'url': data.get('content_urls', {}).get('desktop', {}).get('page', f'https://tr.wikipedia.org/wiki/{query}'),
+                'title': data.get('title', query),
+                'desc': data.get('extract', '')[:250]
+            }], None
+    except:
+        pass
+
+    return None, "Sonuç bulunamadı. Başka kelime dene"
 
 @app.route('/', methods=['GET'])
 def index():
