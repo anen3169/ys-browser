@@ -3,7 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 import re
 
-app = Flask(__name__, template_folder='templates')
+app = Flask(__name__, template_folder='.')
 
 def hesapla(sorgu):
     try:
