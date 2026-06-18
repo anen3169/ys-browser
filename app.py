@@ -38,51 +38,36 @@ def site_cek(url):
         return None, "Siteye ulaşılamadı"
 
 def web_ara(query):
-    # 1. DuckDuckGo Instant Answer API - Vercel'de ban yok
     try:
-        api_url = f"https://api.duckgo.com/?q={urllib.parse.quote(query)}&format=json&no_html=1&skip_disambig=1"
-        r = requests.get(api_url, timeout=8)
-        data = r.json()
-
-        results = []
-
-        # Özet varsa
-        if data.get('AbstractURL') and data.get('AbstractText'):
-            results.append({
-                'url': data['AbstractURL'],
-                'title': data.get('Heading', query),
-                'desc': data['AbstractText'][:250]
-            })
-
-        # İlgili konular
-        for topic in data.get('RelatedTopics', [])[:7]:
-            if isinstance(topic, dict) and 'FirstURL' in topic:
-                results.append({
-                    'url': topic['FirstURL'],
-                    'title': topic.get('Text', '').split(' - ')[0][:80],
-                    'desc': topic.get('Text', '')[:200]
-                })
-
-        if results:
-            return results, None
-    except:
-        pass
-
-    # 2. Fallback: Wikipedia API - Türkçe
-    try:
-        wiki_url = f"https://tr.wikipedia.org/api/rest_v1/page/summary/{urllib.parse.quote(query)}"
-        r = requests.get(wiki_url, timeout=6)
+        # Wikipedia API - Türkçe, Vercel'de genelde ban yok
+        search_term = query.replace(' ', '_')
+        wiki_url = f"https://tr.wikipedia.org/api/rest_v1/page/summary/{urllib.parse.quote(search_term)}"
+        headers = {'User-Agent': 'YS-Browser/1.0'}
+        r = requests.get(wiki_url, headers=headers, timeout=8)
+        
         if r.status_code == 200:
             data = r.json()
             return [{
-                'url': data.get('content_urls', {}).get('desktop', {}).get('page', f'https://tr.wikipedia.org/wiki/{query}'),
+                'url': data.get('content_urls', {}).get('desktop', {}).get('page'),
                 'title': data.get('title', query),
-                'desc': data.get('extract', '')[:250]
+                'desc': data.get('extract', 'Açıklama bulunamadı')[:250]
             }], None
-    except:
+        
+        # İngilizce dene
+        wiki_url_en = f"https://en.wikipedia.org/api/rest_v1/page/summary/{urllib.parse.quote(search_term)}"
+        r = requests.get(wiki_url_en, headers=headers, timeout=8)
+        if r.status_code == 200:
+            data = r.json()
+            return [{
+                'url': data.get('content_urls', {}).get('desktop', {}).get('page'),
+                'title': data.get('title', query),
+                'desc': data.get('extract', 'No description')[:250]
+            }], None
+            
+    except Exception:
         pass
-
-    return None, "Sonuç bulunamadı. Başka kelime dene"
+    
+    return None, "Wikipedia'da bulunamadı. Başka kelime dene"
 
 @app.route('/', methods=['GET'])
 def index():
