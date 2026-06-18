@@ -5,7 +5,7 @@ import re, urllib.parse
 
 app = Flask(__name__, template_folder='.')
 
-# Geçici hafıza - Vercel'de kalıcı değil, istek bazlı
+# Geçici hafıza - Vercel'de kalıcı değil
 trained_data = {"url": "", "content": ""}
 
 def hesapla(sorgu):
@@ -27,41 +27,58 @@ def site_egit(url):
         r = requests.get(url, headers=headers, timeout=10)
         r.raise_for_status()
         soup = BeautifulSoup(r.text, 'html.parser')
-        
-        # Sadece önemli text'leri al
-        for tag in soup(['script', 'style', 'nav', 'footer', 'header']):
+
+        # Gereksiz tag'leri at
+        for tag in soup(['script', 'style', 'nav', 'footer', 'header', 'aside']):
             tag.decompose()
-            
+
         text = soup.get_text(separator=' ', strip=True)
-        text = re.sub(r'\s+', ' ', text)[:8000]  # 8000 karakter limit
-        
+        text = re.sub(r'\s+', ' ', text)[:10000] # 10k karakter limit
+
         trained_data = {"url": url, "content": text}
         title = soup.title.string.strip() if soup.title else url
         return f"AI eğitildi: {title}", None
     except Exception as e:
-        return None, f"Eğitilemedi: {str(e)[:50]}"
+        return None, f"Eğitilemedi: Siteye erişilemedi"
 
 def ai_sor(soru):
     global trained_data
     if not trained_data["content"]:
-        return None, "Önce AI'ı eğit. Örnek: https://tr.wikipedia.org/wiki/TÜBİTAK"
-    
-    # Basit arama: sorudaki kelimeleri içerikte ara
-    soru_kelimeler = [k.lower() for k in re.findall(r'\w+', soru) if len(k) > 3]
-    content_lower = trained_data["content"].lower()
-    
-    bulunan_cumleler = []
-    for cumle in trained_data["content"].split('. '):
-        if any(k in cumle.lower() for k in soru_kelimeler):
-            bulunan_cumleler.append(cumle.strip())
-        if len(bulunan_cumleler) >= 3:
-            break
-    
-    if bulunan_cumleler:
-        cevap = '.join(bulunan_cumleler[:3])
-        return f"[{trained_data['url']} kaynağından] {cevap}...", None
+        return None, "Önce AI'ı eğit. Örnek: egit https://tr.wikipedia.org/wiki/TÜBİTAK"
+
+    soru_kelimeler = [k.lower() for k in re.findall(r'\w+', soru) if len(k) > 2]
+    content = trained_data["content"]
+
+    # En alakalı 3 paragrafı bul
+    paragraflar = [p.strip() for p in content.split('.') if len(p.strip()) > 40]
+    bulunan = []
+
+    for para in paragraflar:
+        para_lower = para.lower()
+        skor = sum(1 for k in soru_kelimeler if k in para_lower)
+        if skor > 0:
+            bulunan.append((skor, para))
+
+    bulunan.sort(reverse=True, key=lambda x: x[0])
+
+    if bulunan:
+        cevap = '.join([p[1] for p in bulunan[:3]])
+        return f"Kaynak: {trained_data['url']}\n\n{cevap}...", None
     else:
         return None, "Eğitilen sitede bu konu hakkında bilgi bulamadım"
+
+def site_cek(url):
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 YS-Browser/1.0'}
+        r = requests.get(url, headers=headers, timeout=8)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, 'html.parser')
+        title = soup.title.string.strip() if soup.title else url
+        meta = soup.find('meta', attrs={'name': 'description'})
+        desc = meta['content'].strip() if meta and meta.get('content') else 'Açıklama yok'
+        return [{'url': url, 'title': title, 'desc': desc[:200]}], None
+    except:
+        return None, "Siteye ulaşılamadı"
 
 def web_ara(query):
     try:
@@ -69,7 +86,7 @@ def web_ara(query):
         wiki_url = f"https://tr.wikipedia.org/api/rest_v1/page/summary/{urllib.parse.quote(search_term)}"
         headers = {'User-Agent': 'YS-Browser/1.0'}
         r = requests.get(wiki_url, headers=headers, timeout=8)
-        
+
         if r.status_code == 200:
             data = r.json()
             return [{
@@ -79,7 +96,7 @@ def web_ara(query):
             }], None
     except:
         pass
-    return None, "Wikipedia'da bulunamadı"
+    return None, "Wikipedia'da bulunamadı. Başka kelime dene"
 
 @app.route('/', methods=['GET'])
 def index():
@@ -92,17 +109,17 @@ def index():
     ai_message = ""
 
     if query:
-        # AI Eğitme komutu: "egit https://site.com" veya direkt link
-        if query.startswith('egit ') or (url_mi(query) and 'egit' in request.args):
-            url = query.replace('egit ', '').strip()
+        # AI Eğitme: "egit https://site.com"
+        if query.lower().startswith('egit '):
+            url = query[5:].strip()
             msg, error = site_egit(url)
             if msg:
                 ai_mode = True
                 ai_message = msg
-        # AI Sorma: "ai: soru" formatı
-        elif query.startswith('ai:'):
+        # AI Sorma: "ai: soru"
+        elif query.lower().startswith('ai:'):
             ai_mode = True
-            soru = query.replace('ai:', '').strip()
+            soru = query[3:].strip()
             msg, error = ai_sor(soru)
             if msg:
                 ai_message = msg
@@ -123,19 +140,5 @@ def index():
                          ai_mode=ai_mode,
                          ai_message=ai_message,
                          trained_url=trained_data["url"])
-
-def site_cek(url):
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0 YS-Browser/1.0'}
-        r = requests.get(url, headers=headers, timeout=8)
-        r.raise_for_status()
-        soup = BeautifulSoup(r.text, 'html.parser')
-        title = soup.title.string.strip() if soup.title else url
-        meta = soup.find('meta', attrs={'name': 'description'})
-        desc = meta['content'].strip() if meta and meta.get('content') else 'Açıklama yok'
-        results = [{'url': url, 'title': title, 'desc': desc[:200]}]
-        return results, None
-    except:
-        return None, "Siteye ulaşılamadı"
 
 app = app
